@@ -15,3 +15,11 @@ def decider(self, e):
         
     return e
 decider.command = "bot"
+
+def dec_borgi (self, e):
+    return decider(self, e)
+dec_borgi.command = "borgi"
+
+def dec_Borgi (self, e):
+    return decider(self, e)
+dec_Borgi.command = "Borgi"

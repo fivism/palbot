@@ -4,15 +4,23 @@ import aiohttp
 import websockets
 import importlib.util
 import os
-import logging, logging.handlers
+import logging
+import logging.handlers
 import configparser
 import re
 import time
 from collections import deque
-
+import sys
 
 FORMAT = "[%(asctime)s] %(levelname)s [%(name)s.%(funcName)s:%(lineno)d] %(message)s"
-logging.basicConfig(filename='debug.log',level=logging.DEBUG, format=FORMAT)
+logging.basicConfig(filename='debug.log', level=logging.DEBUG, format=FORMAT)
+
+# Take cfg as runtime arg for the sake of docker portability
+# if len(sys.argv) < 2:
+#    sys.exit('Usage: %s cfg_file' % sys.argv[0])
+
+# CFG_FILE = sys.argv[1]
+CFG_FILE = "/run/secrets/cfg_file"
 
 async def keep_running(client, token):
     delay = 30
@@ -42,14 +50,15 @@ async def keep_running(client, token):
                 websockets.InvalidHandshake,
                 websockets.WebSocketProtocolError) as e:
             if isinstance(e, discord.ConnectionClosed) and e.code == 4004:
-                raise # Do not reconnect on authentication failure
+                raise  # Do not reconnect on authentication failure
             logging.exception("Discord.py pls keep running")
             await asyncio.sleep(delay)
 
 
-
 client = discord.Client()
-urlregex = re.compile(r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>])*\))+(?:\(([^\s()<>])*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))")
+urlregex = re.compile(
+    r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>])*\))+(?:\(([^\s()<>])*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))")
+
 
 @client.event
 async def on_ready():
@@ -57,6 +66,7 @@ async def on_ready():
     print(client.user.name)
     print(client.user.id)
     print('------')
+
 
 @client.event
 async def on_message(message):
@@ -74,8 +84,8 @@ async def on_message_delete(message):
     for responseto, response in client.lastresponses:
         if message.id == responseto:
             await client.delete_message(response)
-            
-            
+
+
 @client.event
 async def on_message_edit(before, after):
     for responseto, response in client.lastresponses:
@@ -87,8 +97,8 @@ async def on_message_edit(before, after):
                 await client.edit_message(response, e.output, embed=e.embed)
             else:
                 await client.delete_message(response)
-            
-            
+
+
 async def process_message(message):
     command = message.content.split(" ")[0].lower()
     args = message.content[len(command) + 1:].strip()
@@ -101,18 +111,19 @@ async def process_message(message):
         client.bangcommands[command](client, e)
 
     elif command in client.admincommands and\
-             str(message.author) in client.botadmins and\
-             message.channel.is_private:
+            str(message.author) in client.botadmins and\
+            message.channel.is_private:
         e.output = client.admincommands[command](message.content,
                                                  nick,
                                                  client,
                                                  message)
-    
-    #lineparsers should be modified to append if necessary instead of clobber
+
+    # lineparsers should be modified to append if necessary instead of clobber
     e.input = message.content
     for command in client.lineparsers:
         await command(client, e)
     return e
+
 
 async def bot_alerts():
     while not client.is_closed:
@@ -127,13 +138,16 @@ async def bot_alerts():
                     for chid in client.alertsubs[alert.__name__]:
                         channel = discord.Object(id=chid)
                         await client.send_message(channel, out)
-                        logger.debug("channel: {} - Alert {}".format(channel, out))
+                        logger.debug(
+                            "channel: {} - Alert {}".format(channel, out))
         await asyncio.sleep(60)
-    logger.error("apparently the client is closed so I'm killing the alert loop?")
+    logger.error(
+        "apparently the client is closed so I'm killing the alert loop?")
 
 
 def loadmodules():
-    tools_spec = importlib.util.spec_from_file_location("tools", "./botmodules/tools.py")
+    tools_spec = importlib.util.spec_from_file_location(
+        "tools", "./botmodules/tools.py")
     client.tools = importlib.util.module_from_spec(tools_spec)
     tools_spec.loader.exec_module(client.tools)
     try:
@@ -141,7 +155,6 @@ def loadmodules():
         client.tools = vars(client.tools)
     except:
         logger.exception("Could not initialize tools.py:")
-
 
     client.bangcommands = {}
     client.admincommands = {}
@@ -160,7 +173,8 @@ def loadmodules():
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
         except Exception:
-            logger.exception("Error loading module: {} Exception:".format(name))
+            logger.exception(
+                "Error loading module: {} Exception:".format(name))
         else:
             try:
                 vars(module)['__init__'](client)
@@ -202,9 +216,10 @@ def loadmodules():
 def load_config():
     config = configparser.ConfigParser()
     try:
-        cfgfile = open('palbot.cfg')
+        cfgfile = open(CFG_FILE)
     except IOError:
-        logger.logging.exception("You need to create a .cfg file using the example")
+        logger.logging.exception(
+            "You need to create a .cfg file using the example")
         sys.exit(1)
 
     config.read_file(cfgfile)
@@ -213,15 +228,14 @@ def load_config():
 
     logger.info("Bot admins: {}".format(client.botadmins))
 
-
-    #alert subscriptions testing
+    # alert subscriptions testing
     client.alertsubs = {}
     if config.has_section("alerts"):
         for alert in config["alerts"]:
             client.alertsubs[alert] = set(config["alerts"][alert].split(","))
             client.alertsubs[alert].discard("")
 
-    logger.info("channel alerts: {}".format(client.alertsubs)) 
+    logger.info("channel alerts: {}".format(client.alertsubs))
     #self.error_log = simpleLogger(config['misc']['error_log'])
     #self.event_log = simpleLogger(config['misc']['event_log'])
 
@@ -238,16 +252,15 @@ class botEvent:
         self.embed = embed
 
 
-    
 logger = logging.getLogger("py3")
 client.logger = logger
-client.lastresponses= deque(((0,0), (0,0)), maxlen=10)
+client.lastresponses = deque(((0, 0), (0, 0)), maxlen=10)
 client.loadmodules = loadmodules
 client.load_config = load_config
 load_config()
 loadmodules()
 
 client.loop.create_task(bot_alerts())
-client.loop.run_until_complete(keep_running(client, client.botconfig['discord']['token']))
+client.loop.run_until_complete(keep_running(
+    client, client.botconfig['discord']['token']))
 print("Discord client has stopped running,")
-
